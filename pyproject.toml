@@ -1,0 +1,33 @@
+[project]
+name = "code-qa"
+version = "0.1.0"
+description = "Intelligent Codebase Q&A Agent"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.111.0",
+    "uvicorn[standard]==0.30.1",
+    "streamlit==1.35.0",
+    "qdrant-client>=1.10.1",
+    "langchain==0.2.5",
+    "langchain-core==0.2.10",
+    "langchain-groq==0.1.5",
+    "langgraph==0.0.69",
+    "sentence-transformers==3.0.1",
+    "tree-sitter==0.22.3",
+    "tree-sitter-python==0.21.0",
+    "pydantic==2.7.4",
+    "pydantic-settings==2.3.4",
+    "python-dotenv==1.0.1",
+    "httpx==0.27.0",
+    "sse-starlette==2.1.0",
+    "aiofiles==23.2.1",
+    "GitPython==3.1.43",
+    "rich==13.7.1",
+    "python-multipart==0.0.9",
+    "aiosqlite==0.20.0",
+    "rav==0.4.3",
+    "fastembed>=0.4.2",
+]
+
+[tool.uv]
+python-preference = "only-managed"
