@@ -1,14 +1,15 @@
 import json
 import uuid
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from backend.agent.graph import build_graph
-from backend.core.database import get_db_session, Repo
+from backend.core.database import Repo
+from backend.core.deps import get_db
 from backend.core.logger import setup_logger
 from backend.schemas.models import ChatRequest
 
@@ -17,7 +18,7 @@ logger = setup_logger(__name__)
 
 
 async def chat_stream(
-    repo_id: str, message: str, db: Session
+    repo_id: str, message: str, db: Session, session_id: Optional[str] = None
 ) -> AsyncGenerator[dict, None]:
 
     repo = db.query(Repo).filter(Repo.id == repo_id).first()
@@ -34,21 +35,41 @@ async def chat_stream(
         return
 
     graph = build_graph()
-    thread_id = str(uuid.uuid4())
+    
+    # Use existing session_id for multi-turn, or create new one
+    thread_id = session_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+    
+    is_new_thread = not session_id
+    logger.info(f"Using thread_id={thread_id} (new={is_new_thread})")
 
+    # Check if this thread already has state (multi-turn)
+    existing_messages = []
+    if session_id:
+        try:
+            existing_state = await graph.aget_state(config)
+            if existing_state and existing_state.values:
+                existing_messages = existing_state.values.get("messages", [])
+                logger.info(f"Found existing thread with {len(existing_messages)} messages")
+        except Exception:
+            pass  # New thread, start fresh
+
+    # Append new message to existing history
+    all_messages = existing_messages + [HumanMessage(content=message)]
+    
     state_input = {
-        "messages": [HumanMessage(content=message)],
+        "messages": all_messages,
         "repo_id": repo.id,
         "repo_local_path": repo.local_path,
         "collection_name": repo.collection_name,
         "reasoning_enabled": True,
+        "iterations": 0,
+        "citations": [],
     }
 
     try:
-
         logger.info(
-            f"Invoking graph for repo_id={repo_id} with message: {message[:100]}..."
+            f"Invoking graph for repo_id={repo_id} with {len(all_messages)} total messages"
         )
 
         final_state = await graph.ainvoke(state_input, config)
@@ -111,11 +132,11 @@ async def chat_stream(
             "data": json.dumps({"citations": final_metadata["citations"]}),
         }
 
-    yield {"event": "done", "data": json.dumps({"content": final_content})}
+    yield {"event": "done", "data": json.dumps({"content": final_content, "thread_id": thread_id})}
 
 
 @router.post("")
-def chat(payload: ChatRequest, repo_id: str, db: Session = Depends(get_db_session)):
+def chat(payload: ChatRequest, repo_id: str, db: Session = Depends(get_db)):
     repo = db.query(Repo).filter(Repo.id == repo_id).first()
     if not repo:
         raise HTTPException(
@@ -123,7 +144,9 @@ def chat(payload: ChatRequest, repo_id: str, db: Session = Depends(get_db_sessio
         )
 
     async def event_generator():
-        async for event in chat_stream(repo.id, payload.message, db):
+        async for event in chat_stream(
+            repo.id, payload.message, db, session_id=payload.session_id
+        ):
             yield event
 
     return EventSourceResponse(event_generator())

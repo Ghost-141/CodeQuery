@@ -30,3 +30,4 @@ class RepoResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None  # Reuse thread for multi-turn conversations

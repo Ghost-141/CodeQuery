@@ -3,8 +3,15 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # LLM Provider: "groq" or "ollama"
+    llm_provider: str = "groq"
+
     # Groq
-    groq_api_key: str
+    groq_api_key: str = ""
+
+    # Ollama (local LLM)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
 
     # Qdrant
     qdrant_host: str = "localhost"
