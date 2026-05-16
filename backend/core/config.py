@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     llm_model: str = "llama-3.1-70b-versatile"
 
     # Paths
-    repos_dir: Path = Path.home() / "repos"
+    repos_dir: Path = Path(__file__).resolve().parent.parent.parent / "repos"
     db_path: str = "sqlite:///./app.db"
 
     class Config:
