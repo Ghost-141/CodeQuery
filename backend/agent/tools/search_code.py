@@ -12,12 +12,12 @@ from backend.services.indexer.reranker import rerank_chunks
 logger = setup_logger(__name__)
 
 
-def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
+def search_code(query: str, collection_name: str, top_k: int = 5) -> str:
     """Hybrid search using dense + sparse vectors, then fast re-rank."""
     if not collection_name:
         return "Error: collection_name is required"
 
-    top_k = min(top_k, 10)
+    top_k = min(top_k, 5)
     logger.info(f"Searching for: {query}")
 
     try:
@@ -64,7 +64,7 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
                     "node_type": payload.get("node_type", ""),
                     "name": payload.get("name", ""),
                     "score": getattr(point, "score", 0),
-                    "content": payload.get("content", "")[:2000],  # 2000 chars for speed
+                    "content": payload.get("content", "")[:800],
                     "parent_name": payload.get("parent_name", ""),
                     "hierarchy_path": payload.get("hierarchy_path", ""),
                 }
@@ -96,7 +96,7 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
                         "node_type": payload.get("node_type", ""),
                         "name": payload.get("name", ""),
                         "score": getattr(r, "score", 0),
-                        "content": payload.get("content", "")[:2000],
+                        "content": payload.get("content", "")[:800],
                         "parent_name": payload.get("parent_name", ""),
                         "hierarchy_path": payload.get("hierarchy_path", ""),
                     }
@@ -114,7 +114,7 @@ class SearchCodeInput(BaseModel):
     query: str = Field(
         description="Semantic search query to find relevant code chunks."
     )
-    top_k: int = Field(default=10, description="Number of results to return (max 10).")
+    top_k: int = Field(default=5, description="Number of results to return (max 5).")
 
 
 class SearchCodeTool(BaseTool):
