@@ -13,14 +13,15 @@ logger = setup_logger(__name__)
 
 
 def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
-    """Hybrid search using dense + sparse vectors, then re-rank."""
+    """Hybrid search using dense + sparse vectors, then fast re-rank."""
     if not collection_name:
         return "Error: collection_name is required"
 
     top_k = min(top_k, 10)
-    logger.info(f"Performing hybrid search for query: {query}")
+    logger.info(f"Searching for: {query}")
 
     try:
+        # Compute both embeddings
         dense_vector = embed_text(query)
         sparse_dict = embed_sparse_text(query)
         sparse_vector = models.SparseVector(
@@ -29,6 +30,7 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
 
         fetch_limit = top_k * 3
 
+        # Query both dense and sparse
         dense_results = qdrant_client.query_points(
             collection_name=collection_name,
             query=dense_vector,
@@ -45,7 +47,7 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
             with_payload=True,
         ).points
 
-        # Collect all unique chunks from both searches (no fusion, just union)
+        # Collect unique chunks (union, no fusion)
         seen_ids = set()
         chunks = []
 
@@ -62,17 +64,18 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
                     "node_type": payload.get("node_type", ""),
                     "name": payload.get("name", ""),
                     "score": getattr(point, "score", 0),
-                    "content": payload.get("content", "")[:4000],
+                    "content": payload.get("content", "")[:2000],  # 2000 chars for speed
                     "parent_name": payload.get("parent_name", ""),
                     "hierarchy_path": payload.get("hierarchy_path", ""),
                 }
             )
 
-        # Re-rank with cross-encoder for relevance ordering
+        # Fast re-rank (exact name boost only, no slow cross-encoder)
         chunks = rerank_chunks(query, chunks)
+        chunks = chunks[:top_k]
 
     except Exception as e:
-        logger.error(f"Hybrid search failed: {e}. Falling back to dense-only.")
+        logger.error(f"Search failed: {e}. Falling back to dense-only.")
         try:
             dense_vector = embed_text(query)
             response = qdrant_client.query_points(
@@ -93,24 +96,16 @@ def search_code(query: str, collection_name: str, top_k: int = 10) -> str:
                         "node_type": payload.get("node_type", ""),
                         "name": payload.get("name", ""),
                         "score": getattr(r, "score", 0),
-                        "content": payload.get("content", "")[:4000],
+                        "content": payload.get("content", "")[:2000],
                         "parent_name": payload.get("parent_name", ""),
                         "hierarchy_path": payload.get("hierarchy_path", ""),
                     }
                 )
             chunks = rerank_chunks(query, chunks)
+            chunks = chunks[:top_k]
         except Exception as e2:
-            logger.error(f"Fallback search also failed: {e2}")
+            logger.error(f"Fallback also failed: {e2}")
             return "Error: Search failed"
-
-    # Debug output
-    print("\n" + "=" * 60)
-    print(f"DEBUG: HYBRID CHUNKS FOR QUERY: '{query}'")
-    for i, c in enumerate(chunks):
-        print(f"--- Chunk {i+1} ---")
-        print(f"File: {c['file_path']} (lines {c['start_line']}-{c['end_line']})")
-        print(f"Score: {c.get('rerank_score', c['score']):.4f}")
-    print("=" * 60 + "\n")
 
     return json.dumps(chunks, indent=2)
 
@@ -125,12 +120,11 @@ class SearchCodeInput(BaseModel):
 class SearchCodeTool(BaseTool):
     name: str = "search_code"
     description: str = (
-        "Semantic search over the indexed codebase using hybrid search (dense + sparse vectors). "
-        "Returns matching chunks with file path and line numbers."
+        "Semantic search over the indexed codebase. "
+        "Returns matching code chunks with file path and line numbers."
     )
     args_schema: Type[BaseModel] = SearchCodeInput
 
-    # Internal state injected at instantiation
     collection_name: str
 
     def _run(self, query: str, top_k: int = 10) -> str:
