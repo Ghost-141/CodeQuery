@@ -35,11 +35,11 @@ async def chat_stream(
         return
 
     graph = build_graph()
-    
+
     # Use existing session_id for multi-turn, or create new one
     thread_id = session_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
-    
+
     is_new_thread = not session_id
     logger.info(f"Using thread_id={thread_id} (new={is_new_thread})")
 
@@ -50,13 +50,16 @@ async def chat_stream(
             existing_state = await graph.aget_state(config)
             if existing_state and existing_state.values:
                 existing_messages = existing_state.values.get("messages", [])
-                logger.info(f"Found existing thread with {len(existing_messages)} messages")
-        except Exception:
-            pass  # New thread, start fresh
+                logger.info(
+                    f"Found existing thread with {len(existing_messages)} messages"
+                )
+        except Exception as e:
+            logger.warning(f"Could not load session {session_id}:{e}, starting fresh")
+            existing_messages = []
 
     # Append new message to existing history
     all_messages = existing_messages + [HumanMessage(content=message)]
-    
+
     state_input = {
         "messages": all_messages,
         "repo_id": repo.id,
@@ -117,7 +120,7 @@ async def chat_stream(
     logger.info(f"Response metadata: {list(final_metadata.keys())}")
 
     if not final_content:
-        final_content = "I processed your request but couldn't generate a response. Please try rephrasing your question."
+        final_content = "I ran out of time while searching the codebase. Please try a more specific question, or break your request into smaller parts."
 
     # Stream response word-by-word for UX
     words = final_content.split(" ")
@@ -132,7 +135,10 @@ async def chat_stream(
             "data": json.dumps({"citations": final_metadata["citations"]}),
         }
 
-    yield {"event": "done", "data": json.dumps({"content": final_content, "thread_id": thread_id})}
+    yield {
+        "event": "done",
+        "data": json.dumps({"content": final_content, "thread_id": thread_id}),
+    }
 
 
 @router.post("")

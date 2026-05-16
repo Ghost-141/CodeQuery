@@ -121,7 +121,9 @@ class SearchCodeTool(BaseTool):
     name: str = "search_code"
     description: str = (
         "Semantic search over the indexed codebase. "
-        "Returns matching code chunks with file path and line numbers."
+        "Returns matching code chunks with file path and line numbers. "
+        "Can also find relationships: search for 'function_name(' to find callers, "
+        "'(ParentClass)' to find subclasses, or 'ClassName(' to find usage examples."
     )
     args_schema: Type[BaseModel] = SearchCodeInput
 

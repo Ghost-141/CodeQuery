@@ -27,7 +27,8 @@ SYSTEM_PROMPT = """You are an expert codebase Q&A assistant. You answer question
 TOOL CALLING RULES — CRITICAL:
 - You MUST call tools using the tool_call mechanism. NEVER describe tool calls in your response text.
 - If you need to search, call search_code. If you need to read a file, call read_file. Do NOT say "I will search" — just CALL the tool.
-- You have MAXIMUM 3 tool rounds. Use them wisely: 1 search → 1-2 read_file → answer.
+- You have EXACTLY 3 tool rounds total. Round 1: search. Round 2: read files or search again. Round 3: ANSWER with text, do NOT call tools.
+- On round 3, your response MUST be plain text answering the user. If you call a tool on round 3, the system will discard it.
 
 MULTI-TURN CONTEXT:
 - Check the conversation history BEFORE deciding to search. If previous tool results already contain the answer, answer directly WITHOUT searching again.
@@ -36,14 +37,38 @@ MULTI-TURN CONTEXT:
 
 RESPONSE RULES:
 1. NO HALLUCINATION: If tools don't provide the answer, say "I don't have enough information." Do not invent code.
-2. STRUCTURED CITATIONS: Provide citations as file path + line numbers for every claim.
-3. CONCISE & TECHNICAL: Be precise. Use technical terms correctly.
-4. DEEP ANALYSIS: For architecture questions, explore multiple directories, read key files, trace relationships.
+2. NEVER USE PLACEHOLDER NAMES: Do not use generic names like "TestClassName", "SomeClass", "ExampleFunction", or "MyModule". Only use exact class names, function names, and file paths found in the tool results.
+3. STRUCTURED CITATIONS: Provide citations as file path + line numbers for every claim.
+4. CONCISE & TECHNICAL: Be precise. Use technical terms correctly.
+5. DEEP ANALYSIS: For architecture questions, explore multiple directories, read key files, trace relationships.
+
+FINDING RELATIONSHIPS AND USAGE EXAMPLES:
+- To find WHO CALLS a function: search for "function_name(" including the parenthesis. This matches call sites because function calls include "(". Example: search_code("fit(") finds all callers of fit().
+- To find WHAT A FUNCTION CALLS: read the function's implementation with read_file and trace its internal calls.
+- To find CLASS INHERITANCE: child classes are defined as "class Child(ParentClass):". Search for "(ParentClass)" to find all subclasses.
+- To find USAGE EXAMPLES: search for "ClassName(" or "function_name(" — call sites in test files and documentation are natural usage examples. Combine with read_file on test files.
+- To trace IMPORT RELATIONSHIPS: search for "from .module import" or "import module_name".
+- For relationship queries, CALL search_code MULTIPLE TIMES with different patterns, then read the most relevant files.
 
 IMPORTANT: SEARCH RESULTS ARE TRUNCATED
 - search_code returns code snippets, but they may be truncated (first ~4000 chars only).
 - If search shows only the class signature or docstring, use read_file to get the FULL implementation.
 - NEVER say "I don't have enough information" if the search found the right file — just read it with read_file.
+
+MANDATORY WORKFLOW — FOLLOW EXACTLY:
+When you receive search_code results, you MUST:
+1. Read the "name" and "content" fields in EACH search result.
+2. Use ONLY the exact names that appear in those fields. If the class is named "TestTqdmLoggingHandler", you MUST write "TestTqdmLoggingHandler", never "TestClassName".
+3. If a search result shows a file_path, that file EXISTS. NEVER claim it does not exist. If you need details, call read_file on that exact path.
+4. If the content is truncated and you cannot see the full name, call read_file on the file_path before answering.
+5. Do NOT describe what you WOULD do — actually call read_file if you need more information.
+
+EXAMPLES OF BAD vs GOOD OUTPUT:
+BAD: "The TestClassName class in tests/tests_contrib_logging.py has methods..."
+GOOD: "The TestTqdmLoggingHandler class in tests/tests_contrib_logging.py:12 has methods test_should_call_tqdm_write and test_should_call_handle_error_if_exception_was_thrown (tests/tests_contrib_logging.py:15-28)."
+
+BAD: "The file does not exist, so I cannot read it."
+GOOD: [Calls read_file("tests/tests_contrib_logging.py") to get the exact content.]
 """
 
 
@@ -92,13 +117,25 @@ def _build_reasoning_trace(
 def agent_node(state: AgentState):
     """Agent node: invoke LLM with tools and attach metadata."""
     tools = get_tools_for_repo(state["repo_local_path"], state["collection_name"])
-    llm = get_llm().bind_tools(tools)
-
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"][
         -MAX_MESSAGES:
     ]
 
-    response = llm.invoke(messages)
+    current_iter = state.get("iterations", 0)
+    if current_iter >= 2:
+        logger.info(f"Iteration {current_iter}: reminding model to answer")
+        messages.append(
+            SystemMessage(
+                content="REMINDER: You are on your FINAL tool round. After this, you MUST provide a text answer. Do NOT call another tool."
+            )
+        )
+
+    try:
+        llm = get_llm().bind_tools(tools)
+        response = llm.invoke(messages)
+    except Exception as e:
+        logger.error(f"LLM invocation failed: {e}")
+        response = AIMessage(content=f"Error invoking LLM: {e}")
 
     if not response.response_metadata:
         response.response_metadata = {}
@@ -147,7 +184,7 @@ def tool_node(state: AgentState):
                 raw_result = tool_obj.invoke(tc["args"])
 
                 # 2. Extract citations BEFORE truncation
-                if tc["name"] in ("search_code", "summarize_module"):
+                if tc["name"] == "search_code":
                     try:
                         data = json.loads(raw_result)
                         if isinstance(data, list):
@@ -160,8 +197,8 @@ def tool_node(state: AgentState):
                                             "end_line": item.get("end_line"),
                                         }
                                     )
-                    except:
-                        pass
+                    except json.JSONDecodeError:
+                        pass  # search_code error strings are not JSON, that's fine
                 elif tc["name"] in ("read_file", "list_directory"):
                     path = tc["args"].get("path")
                     if path:

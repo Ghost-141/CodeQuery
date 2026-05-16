@@ -20,6 +20,10 @@ engine = create_engine(
     connect_args=(
         {"check_same_thread": False} if settings.db_path.startswith("sqlite") else {}
     ),
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_recycle=1800,
     echo=False,
 )
 

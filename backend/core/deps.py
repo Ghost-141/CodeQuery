@@ -1,9 +1,9 @@
 from typing import Generator
-
+from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from backend.core.database import SessionLocal
-from backend.core.qdrant_client import qdrant_client
+from backend.core.qdrant_client import _create_qdrant_client
 
 
 def get_db() -> Generator[Session, None, None]:

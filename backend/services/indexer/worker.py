@@ -6,6 +6,7 @@ from qdrant_client.models import (
     SparseVectorParams,
     SparseVector,
 )
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from backend.core.database import SessionLocal, Repo
 from backend.core.qdrant_client import qdrant_client
@@ -80,14 +81,20 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
         # Prepare Qdrant collection
         try:
             qdrant_client.get_collection(collection_name)
-        except Exception:
-            qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config={
-                    "dense": VectorParams(size=384, distance=Distance.COSINE)
-                },
-                sparse_vectors_config={"sparse": SparseVectorParams()},
-            )
+        except UnexpectedResponse as e:
+            if e.status_code == 404:
+                logger.debug(
+                    f"Collection {collection_name} not found, creating new collection"
+                )
+                qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config={
+                        "dense": VectorParams(size=384, distance=Distance.COSINE)
+                    },
+                    sparse_vectors_config={"sparse": SparseVectorParams()},
+                )
+            else:
+                raise
 
         batch_size = 16  # Small batch size for reliability
         for i in range(0, len(all_chunks), batch_size):

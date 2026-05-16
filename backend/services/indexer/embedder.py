@@ -12,18 +12,26 @@ _sparse_model = None
 def get_dense_model():
     global _dense_model
     if _dense_model is None:
-        logger.info(f"Loading dense model: {settings.embedding_model}")
-        _dense_model = TextEmbedding(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        try:
+            logger.info(f"Loading dense model: {settings.embedding_model}")
+            _dense_model = TextEmbedding(
+                model_name="sentence-transformers/all-MiniLM-L6-v2"
+            )
+        except Exception as e:
+            logger.error(f"Failed to load dense model: {e}")
+            raise RuntimeError(f"Cannot load embedding model: {str(e)}")
     return _dense_model
 
 
 def get_sparse_model():
     global _sparse_model
     if _sparse_model is None:
-        logger.info("Loading sparse model: BM25")
-        _sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
+        try:
+            logger.info("Loading sparse model: BM25")
+            _sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
+        except Exception as e:
+            logger.error(f"Failed to load sparse model: {e}")
+            raise RuntimeError(f"Cannot load embedding model: {str(e)}")
     return _sparse_model
 
 

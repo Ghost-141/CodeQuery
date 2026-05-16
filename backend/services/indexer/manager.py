@@ -2,6 +2,9 @@ import os
 import shutil
 from pathlib import Path
 import subprocess
+from backend.core.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def clone_repo(url: str, local_path: str) -> str:
@@ -89,5 +92,9 @@ def _is_binary(file_path: str) -> bool:
         with open(file_path, "rb") as f:
             chunk = f.read(1024)
             return b"\x00" in chunk
-    except Exception:
+    except PermissionError:
+        logger.warning(f"Permission denied reading: {file_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Error checking {file_path}: {e}")
         return True
