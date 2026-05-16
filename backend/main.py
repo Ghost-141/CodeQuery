@@ -1,11 +1,8 @@
-import logging
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.v1 import v1_router
-from backend.core.config import settings
-from backend.core.database import SessionLocal, init_db, Repo
+from backend.core.database import init_db
 
 from backend.core.logger import setup_logger
 

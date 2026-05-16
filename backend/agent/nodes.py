@@ -1,9 +1,8 @@
 import json
-import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from backend.agent.state import AgentState
 from backend.agent.tools import (
@@ -12,17 +11,16 @@ from backend.agent.tools import (
     SearchCodeTool,
     SummarizeModuleTool,
 )
+
 from backend.core.llm import get_llm
 from backend.core.config import settings
 from backend.core.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-# Groq: 4K tool response, 6 message history (strict 6K TPM limit)
-# Ollama: 20K tool response, 12 message history (large local context)
 _is_ollama = getattr(settings, "llm_provider", "groq").lower() == "ollama"
-MAX_TOOL_RESPONSE_LENGTH = 20000 if _is_ollama else 4000
-MAX_MESSAGES = 12 if _is_ollama else 6
+MAX_TOOL_RESPONSE_LENGTH = 20000 if _is_ollama else 8000
+MAX_MESSAGES = 10 if _is_ollama else 5
 
 SYSTEM_PROMPT = """You are an expert codebase Q&A assistant. You answer questions about code architecture, functions, and file relationships using ONLY the indexed codebase.
 
@@ -31,27 +29,21 @@ TOOL CALLING RULES — CRITICAL:
 - If you need to search, call search_code. If you need to read a file, call read_file. Do NOT say "I will search" — just CALL the tool.
 - You have MAXIMUM 3 tool rounds. Use them wisely: 1 search → 1-2 read_file → answer.
 
-MULTI-TURN CONTEXT — FOLLOW-UP QUESTIONS:
-- Check the conversation history BEFORE deciding to search.
-- If the user uses pronouns like "it", "this", "that", "the class", "the function" — they are referring to the PREVIOUSLY DISCUSSED topic. Use the previous tool results and your previous answer. Do NOT search again.
-- Example: If you just explained LGBMRanker and user asks "how to implement it?" → "it" means LGBMRanker. Use the read_file results already in history.
-- Only search for COMPLETELY NEW topics not mentioned in the conversation.
-- If unsure what "it" refers to, use your previous answer as context.
-
-SEARCH RESULTS ARE TRUNCATED — THIS IS NORMAL:
-- search_code returns the FIRST ~800 chars of each code chunk (only 5 chunks max).
-- Your job: find the right file from search results, then call read_file to see the FULL implementation.
-- If search results show the correct file path, you HAVE enough information to proceed. Call read_file immediately.
+MULTI-TURN CONTEXT:
+- Check the conversation history BEFORE deciding to search. If previous tool results already contain the answer, answer directly WITHOUT searching again.
+- Only search for NEW topics or when the user asks for something not covered in previous results.
+- If the user asks a follow-up like "explain more" or "what about X", use existing context if possible, or search only for the new aspect.
 
 RESPONSE RULES:
-1. NO HALLUCINATION: Do not invent code. Only describe what you see in the files.
+1. NO HALLUCINATION: If tools don't provide the answer, say "I don't have enough information." Do not invent code.
 2. STRUCTURED CITATIONS: Provide citations as file path + line numbers for every claim.
 3. CONCISE & TECHNICAL: Be precise. Use technical terms correctly.
 4. DEEP ANALYSIS: For architecture questions, explore multiple directories, read key files, trace relationships.
 
-WHEN TO SAY "I don't have enough information":
-- ONLY say this if search_code returns ZERO results (no matching files found).
-- If search_code finds files but content looks incomplete, call read_file for the full file. Do NOT say "I don't have enough information".
+IMPORTANT: SEARCH RESULTS ARE TRUNCATED
+- search_code returns code snippets, but they may be truncated (first ~4000 chars only).
+- If search shows only the class signature or docstring, use read_file to get the FULL implementation.
+- NEVER say "I don't have enough information" if the search found the right file — just read it with read_file.
 """
 
 
@@ -125,11 +117,11 @@ def should_continue(state: AgentState) -> Literal["tools", "end"]:
     Max 3 tool rounds to keep response under 1 minute."""
     last_msg = state["messages"][-1]
     iterations = state.get("iterations", 0)
-    
+
     if iterations >= 3:
         logger.warning(f"Max iterations ({iterations}) reached, forcing end.")
         return "end"
-    
+
     return "tools" if isinstance(last_msg, AIMessage) and last_msg.tool_calls else "end"
 
 

@@ -1,13 +1,12 @@
-import os
-import logging
-import subprocess
-import shutil
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from qdrant_client.models import (
+    Distance,
+    PointStruct,
+    VectorParams,
+    SparseVectorParams,
+    SparseVector,
+)
 
-from qdrant_client.models import Distance, PointStruct, VectorParams, SparseVectorParams, SparseVector
-
-from backend.core.config import settings
 from backend.core.database import SessionLocal, Repo
 from backend.core.qdrant_client import qdrant_client
 from backend.services.indexer.chunker import chunk_python_file, chunk_text_file
@@ -19,14 +18,16 @@ from backend.core.logger import setup_logger
 logger = setup_logger(__name__)
 
 # Single global executor
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="indexer") # Reduced to 1 to isolate
-
+_executor = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="indexer"
+)  # Reduced to 1 to isolate
 
 
 def run_indexing_task(repo_id: str, url: str, local_path: str, collection_name: str):
     logger.debug(f"Submitting indexing task for repo_id={repo_id}")
     _executor.submit(_index_repo, repo_id, url, local_path, collection_name)
     logger.debug(f"Task submitted for repo_id={repo_id}")
+
 
 def _update_repo_status(repo_id: str, status: str, error_message: str = None):
     db = SessionLocal()
@@ -43,9 +44,10 @@ def _update_repo_status(repo_id: str, status: str, error_message: str = None):
     finally:
         db.close()
 
+
 def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
     logger.debug(f"Worker started for repo_id={repo_id}")
-    
+
     try:
         _update_repo_status(repo_id, "cloning")
         logger.debug(f"Calling clone_repo for {url}")
@@ -81,15 +83,17 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
         except Exception:
             qdrant_client.create_collection(
                 collection_name=collection_name,
-                vectors_config={"dense": VectorParams(size=384, distance=Distance.COSINE)},
-                sparse_vectors_config={"sparse": SparseVectorParams()}
+                vectors_config={
+                    "dense": VectorParams(size=384, distance=Distance.COSINE)
+                },
+                sparse_vectors_config={"sparse": SparseVectorParams()},
             )
 
-        batch_size = 16 # Small batch size for reliability
+        batch_size = 16  # Small batch size for reliability
         for i in range(0, len(all_chunks), batch_size):
             batch = all_chunks[i : i + batch_size]
             texts = [c.content for c in batch]
-            
+
             dense_embeddings = embed_texts(texts)
             sparse_embeddings = embed_sparse_texts(texts)
 
@@ -102,8 +106,8 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
                             "dense": dense_embeddings[j],
                             "sparse": SparseVector(
                                 indices=sparse_embeddings[j]["indices"],
-                                values=sparse_embeddings[j]["values"]
-                            )
+                                values=sparse_embeddings[j]["values"],
+                            ),
                         },
                         payload={
                             "file_path": chunk.file_path,
@@ -113,10 +117,6 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
                             "name": chunk.name,
                             "content": chunk.content,
                             "repo_id": repo_id,
-                            "parent_name": chunk.parent_name or "",
-                            "parent_type": chunk.parent_type or "",
-                            "hierarchy_path": chunk.hierarchy_path or "",
-                            "imports": chunk.imports or [],
                         },
                     )
                 )
@@ -125,7 +125,7 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
 
         _update_repo_status(repo_id, "ready")
         logger.debug(f"Indexing complete for repo_id={repo_id}")
-        
+
     except Exception as exc:
         logger.error(f"CRITICAL ERROR in worker: {exc}")
         _update_repo_status(repo_id, "failed", str(exc))
