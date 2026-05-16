@@ -50,11 +50,3 @@ def set_sqlite_pragma(dbapi_conn, connection_record):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-
-
-def get_db_session():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
