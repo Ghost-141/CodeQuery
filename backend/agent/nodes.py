@@ -140,8 +140,9 @@ def agent_node(state: AgentState):
     if not response.response_metadata:
         response.response_metadata = {}
 
-    # In this new flow, citations are extracted during tool execution and stored in state
-    response.response_metadata["citations"] = state.get("citations", [])
+    # citations are extracted during tool execution and stored in state
+    state_citations = state.get("citations", [])
+    response.response_metadata["citations"] = state_citations
     response.response_metadata["reasoning_trace"] = _build_reasoning_trace(
         response, state
     )
@@ -215,4 +216,5 @@ def tool_node(state: AgentState):
 
         tool_messages.append(ToolMessage(content=content, tool_call_id=tc["id"]))
 
+    logger.info(f"tool_node extracted {len(new_citations)} citations")
     return {"messages": tool_messages, "citations": new_citations, "iterations": 1}

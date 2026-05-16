@@ -117,7 +117,10 @@ async def chat_stream(
     final_metadata = (
         last_msg.response_metadata if hasattr(last_msg, "response_metadata") else {}
     )
-    logger.info(f"Response metadata: {list(final_metadata.keys())}")
+    if "citations" in final_metadata:
+        logger.info(f"Response citations count: {len(final_metadata['citations'])}")
+    else:
+        logger.warning("No 'citations' key in response_metadata!")
 
     if not final_content:
         final_content = "I ran out of time while searching the codebase. Please try a more specific question, or break your request into smaller parts."
@@ -130,10 +133,15 @@ async def chat_stream(
 
     # Emit citations
     if "citations" in final_metadata:
+        logger.info(
+            f"Emitting citations event with {len(final_metadata['citations'])} items"
+        )
         yield {
             "event": "citations",
             "data": json.dumps({"citations": final_metadata["citations"]}),
         }
+    else:
+        logger.warning("Skipping citations event — key missing from metadata")
 
     yield {
         "event": "done",
