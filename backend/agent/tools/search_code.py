@@ -13,7 +13,9 @@ logger = setup_logger(__name__)
 
 
 def search_code(query: str, collection_name: str, top_k: int = 5) -> str:
-    """Hybrid search using dense + sparse vectors, then fast re-rank."""
+    """Hybrid search using dense + sparse vectors, then fast re-rank.
+    reference:https://qdrant.tech/course/essentials/day-3/hybrid-search-demo/
+    """
     if not collection_name:
         return "Error: collection_name is required"
 
