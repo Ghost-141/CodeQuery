@@ -1,6 +1,6 @@
 description: Rav is a simple command-line tool to manage your development environment. It provides a set of scripts to run your backend, frontend, and Qdrant services with ease.
 
 scripts:
-  backend: uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+  backend: uv run uvicorn backend.main:app --reload --reload-exclude repos --host 0.0.0.0 --port 8000
   frontend: uv run streamlit run frontend/app.py
   db: docker compose up 
