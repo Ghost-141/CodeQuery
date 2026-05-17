@@ -24,12 +24,20 @@ PYTHON_LANGUAGE = Language(tspython.language())
 
 
 def get_node_text(source_bytes: bytes, node) -> str:
-    return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+    return source_bytes[node.start_byte : node.end_byte].decode(
+        "utf-8", errors="replace"
+    )
 
 
-def _process_node(node, source_bytes: bytes, file_path: str, module_name: str,
-                  parent_name: str = None, parent_type: str = None,
-                  module_imports: list[str] = None) -> list[CodeChunk]:
+def _process_node(
+    node,
+    source_bytes: bytes,
+    file_path: str,
+    module_name: str,
+    parent_name: str = None,
+    parent_type: str = None,
+    module_imports: list[str] = None,
+) -> list[CodeChunk]:
     """Recursively process an AST node and extract chunks with hierarchy metadata."""
     chunks: list[CodeChunk] = []
     node_name = _extract_name(source_bytes, node)
@@ -58,7 +66,10 @@ def _process_node(node, source_bytes: bytes, file_path: str, module_name: str,
                     if item.type in ("function_definition", "class_definition"):
                         chunks.extend(
                             _process_node(
-                                item, source_bytes, file_path, module_name,
+                                item,
+                                source_bytes,
+                                file_path,
+                                module_name,
                                 parent_name=node_name,
                                 parent_type="class_definition",
                                 module_imports=module_imports,
@@ -68,7 +79,11 @@ def _process_node(node, source_bytes: bytes, file_path: str, module_name: str,
     elif node.type == "function_definition":
         # Build hierarchy: module.ClassName.method_name or module.function_name
         if parent_name:
-            hierarchy = f"{module_name}.{parent_name}.{node_name}" if module_name else f"{parent_name}.{node_name}"
+            hierarchy = (
+                f"{module_name}.{parent_name}.{node_name}"
+                if module_name
+                else f"{parent_name}.{node_name}"
+            )
         else:
             hierarchy = f"{module_name}.{node_name}" if module_name else node_name
         chunks.append(
@@ -90,6 +105,7 @@ def _process_node(node, source_bytes: bytes, file_path: str, module_name: str,
 
 
 def chunk_python_file(file_path: str, repo_root: str) -> list[CodeChunk]:
+
     with open(file_path, "rb") as f:
         source_bytes = f.read()
 
@@ -110,14 +126,21 @@ def chunk_python_file(file_path: str, repo_root: str) -> list[CodeChunk]:
             if inner and inner.type == "string" and not module_docstring:
                 module_docstring = get_node_text(source_bytes, child)
                 continue
-        if child.type in ("import_statement", "import_from_statement", "future_import_statement"):
+        if child.type in (
+            "import_statement",
+            "import_from_statement",
+            "future_import_statement",
+        ):
             module_imports.append(get_node_text(source_bytes, child))
             continue
 
         if child.type in ("function_definition", "class_definition"):
             chunks.extend(
                 _process_node(
-                    child, source_bytes, relative_path, module_name,
+                    child,
+                    source_bytes,
+                    relative_path,
+                    module_name,
                     module_imports=module_imports,
                 )
             )
@@ -151,21 +174,23 @@ def chunk_python_file(file_path: str, repo_root: str) -> list[CodeChunk]:
     return chunks
 
 
-def chunk_text_file(file_path: str, repo_root: str, chunk_size: int = 1000) -> list[CodeChunk]:
+def chunk_text_file(
+    file_path: str, repo_root: str, chunk_size: int = 1000
+) -> list[CodeChunk]:
     """Generic chunker for non-Python text files (README, docs, etc.)."""
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
 
     relative_path = os.path.relpath(file_path, repo_root)
     chunks: list[CodeChunk] = []
-    
+
     # Simple fixed-size chunking for now
     lines = content.splitlines()
     for i in range(0, len(lines), 50):  # 50 lines per chunk approx
         chunk_lines = lines[i : i + 50]
         if not chunk_lines:
             continue
-        
+
         chunks.append(
             CodeChunk(
                 file_path=relative_path,

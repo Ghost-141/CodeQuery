@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -30,4 +30,4 @@ class RepoResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: Optional[str] = None  # Reuse thread for multi-turn conversations
+    session_id: Optional[str] = None

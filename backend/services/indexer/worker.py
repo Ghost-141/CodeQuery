@@ -19,15 +19,23 @@ from backend.core.logger import setup_logger
 logger = setup_logger(__name__)
 
 # Single global executor
-_executor = ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="indexer"
-)  # Reduced to 1 to isolate
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="indexer")
 
 
 def run_indexing_task(repo_id: str, url: str, local_path: str, collection_name: str):
-    logger.debug(f"Submitting indexing task for repo_id={repo_id}")
-    _executor.submit(_index_repo, repo_id, url, local_path, collection_name)
-    logger.debug(f"Task submitted for repo_id={repo_id}")
+    logger.info(f"Submitting indexing task for repo_id={repo_id}")
+    future = _executor.submit(_index_repo, repo_id, url, local_path, collection_name)
+
+    def _on_done(f):
+        try:
+            f.result()
+            logger.info(f"Indexing task completed for repo_id={repo_id}")
+        except Exception as e:
+            logger.error(f"Indexing task FAILED for repo_id={repo_id}: {e}")
+            _update_repo_status(repo_id, "failed", str(e))
+
+    future.add_done_callback(_on_done)
+    logger.info(f"Task submitted for repo_id={repo_id}")
 
 
 def _update_repo_status(repo_id: str, status: str, error_message: str = None):
@@ -57,18 +65,20 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
 
         _update_repo_status(repo_id, "parsing")
         source_files = list(list_source_files(local_path))
-        logger.debug(f"Found {len(source_files)} source files")
+        logger.info(f"Found {len(source_files)} source files to parse")
 
         all_chunks = []
-        for sf in source_files:
+        for idx, sf in enumerate(source_files):
             try:
+                logger.info(f"Parsing {idx+1}/{len(source_files)}: {sf}")
                 if sf.endswith(".py"):
                     chunks = chunk_python_file(sf, local_path)
                 else:
                     chunks = chunk_text_file(sf, local_path)
                 all_chunks.extend(chunks)
+                logger.info(f"  → {len(chunks)} chunks from {sf}")
             except Exception as e:
-                logger.debug(f"Failed to chunk {sf}: {e}")
+                logger.error(f"Failed to chunk {sf}: {e}")
                 continue
 
         if not all_chunks:
@@ -96,13 +106,17 @@ def _index_repo(repo_id: str, url: str, local_path: str, collection_name: str):
             else:
                 raise
 
-        batch_size = 16  # Small batch size for reliability
+        batch_size = 32  # Larger batch for faster embedding
         for i in range(0, len(all_chunks), batch_size):
             batch = all_chunks[i : i + batch_size]
             texts = [c.content for c in batch]
 
-            dense_embeddings = embed_texts(texts)
-            sparse_embeddings = embed_sparse_texts(texts)
+            # Parallelize dense + sparse embedding generation
+            with ThreadPoolExecutor(max_workers=2) as embed_pool:
+                dense_future = embed_pool.submit(embed_texts, texts)
+                sparse_future = embed_pool.submit(embed_sparse_texts, texts)
+                dense_embeddings = dense_future.result()
+                sparse_embeddings = sparse_future.result()
 
             points = []
             for j, chunk in enumerate(batch):

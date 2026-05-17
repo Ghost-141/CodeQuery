@@ -15,7 +15,6 @@ def clone_repo(url: str, local_path: str) -> str:
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
 
-    # Use direct subprocess with DEVNULL to avoid buffer issues and disable prompts
     try:
         subprocess.run(
             ["git", "clone", "--depth", "1", "-b", "main", url, local_path],
@@ -34,7 +33,6 @@ def clone_repo(url: str, local_path: str) -> str:
                 env=env,
             )
         except subprocess.CalledProcessError:
-            # Fallback: clone default branch
             subprocess.run(
                 ["git", "clone", "--depth", "1", url, local_path],
                 check=True,

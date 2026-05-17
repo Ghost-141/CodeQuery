@@ -51,7 +51,6 @@ def embed_sparse_texts(texts: List[str]) -> List[Dict[str, Any]]:
     """Generate sparse (BM25) embeddings for a list of texts."""
     model = get_sparse_model()
     embeddings = list(model.embed(texts))
-    # FastEmbed sparse output is an object with 'indices' and 'values'
     return [
         {"indices": e.indices.tolist(), "values": e.values.tolist()} for e in embeddings
     ]
