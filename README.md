@@ -173,21 +173,11 @@ Backend will be available at: `http://localhost:8000/`
 The UI will open at `http://localhost:8501`.
 
 
-
-
 ## Interaction with the UI:
 - paste the github link and click on `Start Indexing`
 - The UI will show the status of the indexing to embedding
 - Once embedding is done click on the `Chat` button to start chatting with the codebase
 
-
-## AI Usage
-
-This project was developed with AI assistance for:
-- **Code Generation**: Boilerplate code, API endpoints, and utility functions
-- **Documentation**: README and inline code comments
-
-All AI-generated code was reviewed, tested, and integrated manually to match with project requiremets.
 
 ## References
 
